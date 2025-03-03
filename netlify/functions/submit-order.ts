@@ -33,12 +33,7 @@ export const handler: Handler = async (event) => {
     const { token, orderData } = JSON.parse(event.body || '{}');
     console.log('Received order request:', { 
       token: token ? 'present' : 'missing',
-      orderData: {
-        ...orderData,
-        amount: orderData?.amount,
-        phone_number: orderData?.phone_number,
-        payment_method: orderData?.payment_method
-      }
+      orderData: JSON.stringify(orderData, null, 2)
     });
 
     if (!token) {
@@ -67,6 +62,7 @@ export const handler: Handler = async (event) => {
       },
       {
         headers: {
+          'Accept': 'application/json',
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         }
@@ -80,19 +76,30 @@ export const handler: Handler = async (event) => {
     }
 
     // Update order data with IPN ID
-    orderData.ipn_id = ipnResponse.data.ipn_id;
+    const orderPayload = {
+      id: orderData.id,
+      currency: orderData.currency,
+      amount: orderData.amount,
+      description: orderData.description,
+      callback_url: orderData.callback_url,
+      notification_id: ipnResponse.data.ipn_id,
+      branch: orderData.branch,
+      billing_address: orderData.billing_address,
+      payment_method: orderData.payment_method
+    };
 
     // Submit order to PesaPal
     console.log('Submitting order to PesaPal:', {
       url: `${PESAPAL_URL}/api/Transactions/SubmitOrderRequest`,
-      orderData
+      orderPayload: JSON.stringify(orderPayload, null, 2)
     });
 
     const response = await axios.post(
       `${PESAPAL_URL}/api/Transactions/SubmitOrderRequest`,
-      orderData,
+      orderPayload,
       {
         headers: {
+          'Accept': 'application/json',
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         }
@@ -101,8 +108,8 @@ export const handler: Handler = async (event) => {
 
     console.log('PesaPal response:', response.data);
 
-    if (!response.data) {
-      throw new Error('Empty response from PesaPal');
+    if (!response.data || !response.data.order_tracking_id) {
+      throw new Error('Invalid response from PesaPal: ' + JSON.stringify(response.data));
     }
 
     // If payment method is MPESA and phone number is provided
@@ -117,6 +124,7 @@ export const handler: Handler = async (event) => {
         },
         {
           headers: {
+            'Accept': 'application/json',
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`
           }
@@ -157,7 +165,8 @@ export const handler: Handler = async (event) => {
     console.error('Submit order error:', {
       message: error.message,
       response: error.response?.data,
-      stack: error.stack
+      stack: error.stack,
+      status: error.response?.status
     });
     
     return {
@@ -168,7 +177,8 @@ export const handler: Handler = async (event) => {
       },
       body: JSON.stringify({ 
         message: error.message || 'Failed to submit order',
-        details: error.response?.data || {}
+        details: error.response?.data || {},
+        status: error.response?.status || 500
       })
     };
   }
