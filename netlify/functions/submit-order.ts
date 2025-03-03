@@ -6,13 +6,12 @@ const PESAPAL_URL = process.env.NODE_ENV === 'production'
   : 'https://cybqa.pesapal.com/v3';
 
 export const handler: Handler = async (event) => {
-  const corsHeaders: { [key: string]: string } = {
+  const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
   };
 
-  // Handle CORS preflight requests
   if (event.httpMethod === 'OPTIONS') {
     return {
       statusCode: 200,
@@ -54,84 +53,111 @@ export const handler: Handler = async (event) => {
 
     // First register IPN URL
     console.log('Registering IPN URL:', orderData.callback_url);
-    const ipnResponse = await axios.post(
-      `${PESAPAL_URL}/api/URLSetup/RegisterIPN`,
-      {
-        url: orderData.callback_url,
-        ipn_notification_type: 'POST'
-      },
-      {
+    try {
+      const ipnResponse = await axios({
+        method: 'post',
+        url: `${PESAPAL_URL}/api/URLSetup/RegisterIPN`,
         headers: {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
+        },
+        data: {
+          url: orderData.callback_url,
+          ipn_notification_type: 'POST'
         }
+      });
+
+      console.log('IPN Registration response:', ipnResponse.data);
+
+      if (!ipnResponse.data.ipn_id) {
+        throw new Error('Failed to get IPN ID');
       }
-    );
 
-    console.log('IPN Registration response:', ipnResponse.data);
+      // Prepare order payload according to PesaPal's exact requirements
+      const orderPayload = {
+        id: orderData.id,
+        currency: orderData.currency,
+        amount: Number(orderData.amount),
+        description: orderData.description,
+        callback_url: orderData.callback_url,
+        notification_id: ipnResponse.data.ipn_id,
+        billing_address: {
+          email_address: orderData.billing_address.email_address,
+          phone_number: orderData.billing_address.phone_number,
+          country_code: orderData.billing_address.country_code,
+          first_name: orderData.billing_address.first_name,
+          middle_name: orderData.billing_address.middle_name,
+          last_name: orderData.billing_address.last_name,
+          line_1: orderData.billing_address.line_1,
+          line_2: orderData.billing_address.line_2,
+          city: orderData.billing_address.city,
+          state: orderData.billing_address.state,
+          postal_code: orderData.billing_address.postal_code,
+          zip_code: orderData.billing_address.zip_code
+        }
+      };
 
-    if (!ipnResponse.data.ipn_id) {
-      throw new Error('Failed to get IPN ID');
-    }
+      console.log('Submitting order to PesaPal:', {
+        url: `${PESAPAL_URL}/api/Transactions/SubmitOrderRequest`,
+        payload: JSON.stringify(orderPayload, null, 2)
+      });
 
-    // Update order data with IPN ID
-    const orderPayload = {
-      id: orderData.id,
-      currency: orderData.currency,
-      amount: orderData.amount,
-      description: orderData.description,
-      callback_url: orderData.callback_url,
-      notification_id: ipnResponse.data.ipn_id,
-      branch: orderData.branch,
-      billing_address: orderData.billing_address,
-      payment_method: orderData.payment_method
-    };
-
-    // Submit order to PesaPal
-    console.log('Submitting order to PesaPal:', {
-      url: `${PESAPAL_URL}/api/Transactions/SubmitOrderRequest`,
-      orderPayload: JSON.stringify(orderPayload, null, 2)
-    });
-
-    const response = await axios.post(
-      `${PESAPAL_URL}/api/Transactions/SubmitOrderRequest`,
-      orderPayload,
-      {
+      const response = await axios({
+        method: 'post',
+        url: `${PESAPAL_URL}/api/Transactions/SubmitOrderRequest`,
         headers: {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
-        }
+        },
+        data: orderPayload
+      });
+
+      console.log('PesaPal order response:', response.data);
+
+      if (!response.data || !response.data.order_tracking_id) {
+        throw new Error('Invalid response from PesaPal: ' + JSON.stringify(response.data));
       }
-    );
 
-    console.log('PesaPal response:', response.data);
-
-    if (!response.data || !response.data.order_tracking_id) {
-      throw new Error('Invalid response from PesaPal: ' + JSON.stringify(response.data));
-    }
-
-    // If payment method is MPESA and phone number is provided
-    if (orderData.payment_method === 'MPESA' && orderData.phone_number) {
-      // For MPESA, we need to initiate the STK push
-      console.log('Initiating STK push for phone:', orderData.phone_number);
-      const stkResponse = await axios.post(
-        `${PESAPAL_URL}/api/Transactions/InitiateMobileMoneyPayment`,
-        {
+      // Handle M-PESA payment
+      if (orderData.payment_method === 'MPESA' && orderData.phone_number) {
+        console.log('Initiating STK push for phone:', orderData.phone_number);
+        
+        const stkPayload = {
           orderTrackingId: response.data.order_tracking_id,
           phoneNumber: orderData.phone_number
-        },
-        {
+        };
+
+        console.log('STK push payload:', stkPayload);
+
+        const stkResponse = await axios({
+          method: 'post',
+          url: `${PESAPAL_URL}/api/Transactions/InitiateMobileMoneyPayment`,
           headers: {
             'Accept': 'application/json',
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`
-          }
-        }
-      );
+          },
+          data: stkPayload
+        });
 
-      console.log('STK Push response:', stkResponse.data);
+        console.log('STK Push response:', stkResponse.data);
+
+        return {
+          statusCode: 200,
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            status: 'success',
+            message: 'Payment initiated',
+            order_tracking_id: response.data.order_tracking_id,
+            stk_status: stkResponse.data
+          })
+        };
+      }
 
       return {
         statusCode: 200,
@@ -140,32 +166,25 @@ export const handler: Handler = async (event) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          status: 'success',
-          message: 'Payment initiated',
-          order_tracking_id: response.data.order_tracking_id,
-          stk_status: stkResponse.data
+          redirect_url: `https://pay.pesapal.com/iframe/PesapalIframe3/Index?OrderTrackingId=${response.data.order_tracking_id}`,
+          order_tracking_id: response.data.order_tracking_id
         })
       };
-    }
 
-    // For other payment methods, return the redirect URL
-    return {
-      statusCode: 200,
-      headers: {
-        ...corsHeaders,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        redirect_url: `https://pay.pesapal.com/iframe/PesapalIframe3/Index?OrderTrackingId=${response.data.order_tracking_id}`,
-        order_tracking_id: response.data.order_tracking_id
-      })
-    };
+    } catch (apiError: any) {
+      console.error('PesaPal API error:', {
+        message: apiError.message,
+        response: apiError.response?.data,
+        status: apiError.response?.status
+      });
+      
+      throw apiError;
+    }
 
   } catch (error: any) {
     console.error('Submit order error:', {
       message: error.message,
       response: error.response?.data,
-      stack: error.stack,
       status: error.response?.status
     });
     
