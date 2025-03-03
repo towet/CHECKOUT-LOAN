@@ -6,15 +6,17 @@ const PESAPAL_URL = process.env.NODE_ENV === 'production'
   : 'https://cybqa.pesapal.com/v3';
 
 export const handler: Handler = async (event) => {
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  };
+
   // Handle CORS preflight requests
   if (event.httpMethod === 'OPTIONS') {
     return {
       statusCode: 200,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-        'Access-Control-Allow-Methods': 'GET, OPTIONS',
-      },
+      headers: corsHeaders,
       body: '',
     };
   }
@@ -22,6 +24,7 @@ export const handler: Handler = async (event) => {
   if (event.httpMethod !== 'GET') {
     return {
       statusCode: 405,
+      headers: corsHeaders,
       body: JSON.stringify({ message: 'Method not allowed' }),
     };
   }
@@ -33,6 +36,7 @@ export const handler: Handler = async (event) => {
     if (!orderId) {
       return {
         statusCode: 400,
+        headers: corsHeaders,
         body: JSON.stringify({ message: 'Order ID is required' }),
       };
     }
@@ -40,6 +44,7 @@ export const handler: Handler = async (event) => {
     if (!token) {
       return {
         statusCode: 400,
+        headers: corsHeaders,
         body: JSON.stringify({ message: 'Authorization token is required' }),
       };
     }
@@ -60,9 +65,8 @@ export const handler: Handler = async (event) => {
     return {
       statusCode: 200,
       headers: {
+        ...corsHeaders,
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type',
       },
       body: JSON.stringify(response.data)
     };
@@ -77,9 +81,8 @@ export const handler: Handler = async (event) => {
     return {
       statusCode: error.response?.status || 500,
       headers: {
+        ...corsHeaders,
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type',
       },
       body: JSON.stringify({ 
         message: error.message || 'Failed to check payment status',

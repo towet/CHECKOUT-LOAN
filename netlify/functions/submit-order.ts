@@ -6,15 +6,17 @@ const PESAPAL_URL = process.env.NODE_ENV === 'production'
   : 'https://cybqa.pesapal.com/v3';
 
 export const handler: Handler = async (event) => {
+  const corsHeaders: { [key: string]: string } = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  };
+
   // Handle CORS preflight requests
   if (event.httpMethod === 'OPTIONS') {
     return {
       statusCode: 200,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      },
+      headers: corsHeaders,
       body: '',
     };
   }
@@ -22,6 +24,7 @@ export const handler: Handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
+      headers: corsHeaders,
       body: JSON.stringify({ message: 'Method not allowed' }),
     };
   }
@@ -41,6 +44,7 @@ export const handler: Handler = async (event) => {
     if (!token) {
       return {
         statusCode: 400,
+        headers: corsHeaders,
         body: JSON.stringify({ message: 'Token is required' }),
       };
     }
@@ -48,6 +52,7 @@ export const handler: Handler = async (event) => {
     if (!orderData) {
       return {
         statusCode: 400,
+        headers: corsHeaders,
         body: JSON.stringify({ message: 'Order data is required' }),
       };
     }
@@ -123,9 +128,8 @@ export const handler: Handler = async (event) => {
       return {
         statusCode: 200,
         headers: {
+          ...corsHeaders,
           'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Headers': 'Content-Type',
         },
         body: JSON.stringify({
           status: 'success',
@@ -140,9 +144,8 @@ export const handler: Handler = async (event) => {
     return {
       statusCode: 200,
       headers: {
+        ...corsHeaders,
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type',
       },
       body: JSON.stringify({
         redirect_url: `https://pay.pesapal.com/iframe/PesapalIframe3/Index?OrderTrackingId=${response.data.order_tracking_id}`,
@@ -160,9 +163,8 @@ export const handler: Handler = async (event) => {
     return {
       statusCode: error.response?.status || 500,
       headers: {
+        ...corsHeaders,
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type',
       },
       body: JSON.stringify({ 
         message: error.message || 'Failed to submit order',
