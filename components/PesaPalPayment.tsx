@@ -83,8 +83,6 @@ export const PesaPalPayment: React.FC<PaymentProps> = ({
         amount: amount,
         description: description,
         callback_url: callbackUrl,
-        notification_id: '',
-        branch: 'Visa Expert',
         payment_method: 'MPESA',
         phone_number: formattedPhone,
         billing_address: {
@@ -99,8 +97,8 @@ export const PesaPalPayment: React.FC<PaymentProps> = ({
           city: 'Nairobi',
           state: '',
           postal_code: '',
-          zip_code: '',
-        },
+          zip_code: ''
+        }
       };
 
       console.log('Submitting order with data:', orderData);
@@ -109,6 +107,7 @@ export const PesaPalPayment: React.FC<PaymentProps> = ({
       const submitResponse = await fetch('/.netlify/functions/submit-order', {
         method: 'POST',
         headers: {
+          'Accept': 'application/json',
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${tokenData.token}`,
         },
@@ -118,12 +117,14 @@ export const PesaPalPayment: React.FC<PaymentProps> = ({
         }),
       });
 
+      if (!submitResponse.ok) {
+        const errorData = await submitResponse.json();
+        console.error('Submit order error:', errorData);
+        throw new Error(errorData.message || 'Failed to submit order');
+      }
+
       const responseData = await submitResponse.json();
       console.log('Submit order response:', responseData);
-
-      if (!submitResponse.ok) {
-        throw new Error(responseData.message || 'Failed to submit order');
-      }
 
       if (responseData.status === 'success') {
         setError('Please check your phone for the M-PESA payment prompt. If you don\'t receive it within 30 seconds, please try again.');
@@ -136,7 +137,15 @@ export const PesaPalPayment: React.FC<PaymentProps> = ({
                 'Authorization': `Bearer ${tokenData.token}`,
               },
             });
+            
+            if (!statusResponse.ok) {
+              const errorData = await statusResponse.json();
+              console.error('Payment status error:', errorData);
+              throw new Error(errorData.message || 'Failed to check payment status');
+            }
+
             const statusData = await statusResponse.json();
+            console.log('Payment status:', statusData);
             
             if (statusData.status === 'COMPLETED') {
               setError('Payment completed successfully!');
@@ -150,8 +159,9 @@ export const PesaPalPayment: React.FC<PaymentProps> = ({
             
             // Continue polling if payment is pending
             setTimeout(checkPayment, 5000);
-          } catch (err) {
+          } catch (err: any) {
             console.error('Error checking payment status:', err);
+            setError('Error checking payment status: ' + (err.message || 'Unknown error'));
           }
         };
         

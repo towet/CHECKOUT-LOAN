@@ -1,9 +1,8 @@
 import { Handler } from '@netlify/functions';
 import axios from 'axios';
 
-const PESAPAL_URL = process.env.NODE_ENV === 'production'
-  ? 'https://pay.pesapal.com/v3'
-  : 'https://cybqa.pesapal.com/v3';
+// Use the sandbox URL for testing
+const PESAPAL_URL = 'https://cybqa.pesapal.com/v3';
 
 export const handler: Handler = async (event) => {
   const corsHeaders = {
@@ -30,10 +29,10 @@ export const handler: Handler = async (event) => {
 
   try {
     const { token, orderData } = JSON.parse(event.body || '{}');
-    console.log('Received order request:', { 
+    console.log('Processing order with data:', JSON.stringify({
       token: token ? 'present' : 'missing',
-      orderData: JSON.stringify(orderData, null, 2)
-    });
+      orderData
+    }, null, 2));
 
     if (!token) {
       return {
@@ -52,7 +51,9 @@ export const handler: Handler = async (event) => {
     }
 
     // First register IPN URL
-    console.log('Registering IPN URL:', orderData.callback_url);
+    const ipnUrl = orderData.callback_url;
+    console.log('Registering IPN URL:', ipnUrl);
+
     try {
       const ipnResponse = await axios({
         method: 'post',
@@ -63,38 +64,38 @@ export const handler: Handler = async (event) => {
           'Authorization': `Bearer ${token}`
         },
         data: {
-          url: orderData.callback_url,
+          url: ipnUrl,
           ipn_notification_type: 'POST'
         }
       });
 
-      console.log('IPN Registration response:', ipnResponse.data);
+      console.log('IPN Registration response:', JSON.stringify(ipnResponse.data, null, 2));
 
       if (!ipnResponse.data.ipn_id) {
-        throw new Error('Failed to get IPN ID');
+        throw new Error('Failed to get IPN ID from response: ' + JSON.stringify(ipnResponse.data));
       }
 
       // Prepare order payload according to PesaPal's exact requirements
       const orderPayload = {
         id: orderData.id,
-        currency: orderData.currency,
-        amount: Number(orderData.amount),
+        currency: 'KES',
+        amount: parseFloat(orderData.amount),
         description: orderData.description,
-        callback_url: orderData.callback_url,
+        callback_url: ipnUrl,
         notification_id: ipnResponse.data.ipn_id,
         billing_address: {
           email_address: orderData.billing_address.email_address,
           phone_number: orderData.billing_address.phone_number,
-          country_code: orderData.billing_address.country_code,
+          country_code: 'KE',
           first_name: orderData.billing_address.first_name,
-          middle_name: orderData.billing_address.middle_name,
+          middle_name: orderData.billing_address.middle_name || '',
           last_name: orderData.billing_address.last_name,
-          line_1: orderData.billing_address.line_1,
-          line_2: orderData.billing_address.line_2,
-          city: orderData.billing_address.city,
-          state: orderData.billing_address.state,
-          postal_code: orderData.billing_address.postal_code,
-          zip_code: orderData.billing_address.zip_code
+          line_1: orderData.billing_address.line_1 || 'N/A',
+          line_2: orderData.billing_address.line_2 || '',
+          city: orderData.billing_address.city || 'Nairobi',
+          state: orderData.billing_address.state || '',
+          postal_code: orderData.billing_address.postal_code || '',
+          zip_code: orderData.billing_address.zip_code || ''
         }
       };
 
@@ -114,7 +115,7 @@ export const handler: Handler = async (event) => {
         data: orderPayload
       });
 
-      console.log('PesaPal order response:', response.data);
+      console.log('PesaPal order response:', JSON.stringify(response.data, null, 2));
 
       if (!response.data || !response.data.order_tracking_id) {
         throw new Error('Invalid response from PesaPal: ' + JSON.stringify(response.data));
@@ -126,10 +127,10 @@ export const handler: Handler = async (event) => {
         
         const stkPayload = {
           orderTrackingId: response.data.order_tracking_id,
-          phoneNumber: orderData.phone_number
+          phoneNumber: orderData.phone_number.replace(/[^0-9]/g, '') // Remove any non-numeric characters
         };
 
-        console.log('STK push payload:', stkPayload);
+        console.log('STK push payload:', JSON.stringify(stkPayload, null, 2));
 
         const stkResponse = await axios({
           method: 'post',
@@ -142,7 +143,7 @@ export const handler: Handler = async (event) => {
           data: stkPayload
         });
 
-        console.log('STK Push response:', stkResponse.data);
+        console.log('STK Push response:', JSON.stringify(stkResponse.data, null, 2));
 
         return {
           statusCode: 200,
@@ -175,7 +176,9 @@ export const handler: Handler = async (event) => {
       console.error('PesaPal API error:', {
         message: apiError.message,
         response: apiError.response?.data,
-        status: apiError.response?.status
+        status: apiError.response?.status,
+        url: apiError.config?.url,
+        data: apiError.config?.data
       });
       
       throw apiError;
@@ -185,7 +188,9 @@ export const handler: Handler = async (event) => {
     console.error('Submit order error:', {
       message: error.message,
       response: error.response?.data,
-      status: error.response?.status
+      status: error.response?.status,
+      url: error.config?.url,
+      data: error.config?.data
     });
     
     return {
