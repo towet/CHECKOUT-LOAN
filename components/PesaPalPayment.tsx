@@ -54,16 +54,19 @@ export const PesaPalPayment: React.FC<PaymentProps> = ({
       setError(null);
 
       const formattedPhone = formatPhoneNumber(phone);
+      console.log('Initiating payment with phone:', formattedPhone);
 
       // Get token
       const tokenResponse = await fetch('/api/get-token');
       
       if (!tokenResponse.ok) {
         const errorData = await tokenResponse.text();
+        console.error('Token error:', errorData);
         throw new Error(`Failed to get token: ${errorData}`);
       }
 
       const tokenData = await tokenResponse.json();
+      console.log('Token received:', tokenData.token ? 'Yes' : 'No');
       
       if (!tokenData.token) {
         throw new Error(`No token in response: ${JSON.stringify(tokenData)}`);
@@ -71,6 +74,7 @@ export const PesaPalPayment: React.FC<PaymentProps> = ({
 
       // Get the callback URL
       const callbackUrl = `${window.location.origin}/api/ipn`;
+      console.log('Callback URL:', callbackUrl);
 
       // Prepare order data
       const orderData = {
@@ -99,6 +103,8 @@ export const PesaPalPayment: React.FC<PaymentProps> = ({
         },
       };
 
+      console.log('Submitting order with data:', orderData);
+
       // Submit order
       const submitResponse = await fetch('/api/submit-order', {
         method: 'POST',
@@ -111,20 +117,44 @@ export const PesaPalPayment: React.FC<PaymentProps> = ({
         }),
       });
 
+      const responseData = await submitResponse.json();
+      console.log('Submit order response:', responseData);
+
       if (!submitResponse.ok) {
-        const errorData = await submitResponse.text();
-        throw new Error(`Failed to submit order: ${errorData}`);
+        throw new Error(responseData.message || 'Failed to submit order');
       }
 
-      const submitData = await submitResponse.json();
-
-      if (submitData.status === 'success') {
-        // Show success message and wait for STK push
-        setError('Please check your phone for the M-PESA payment prompt');
-      } else if (submitData.redirect_url) {
-        window.location.href = submitData.redirect_url;
+      if (responseData.status === 'success') {
+        setError('Please check your phone for the M-PESA payment prompt. If you don\'t receive it within 30 seconds, please try again.');
+        
+        // Poll for payment status
+        const checkPayment = async () => {
+          try {
+            const statusResponse = await fetch(`/api/check-payment?orderId=${responseData.order_tracking_id}`);
+            const statusData = await statusResponse.json();
+            
+            if (statusData.status === 'COMPLETED') {
+              setError('Payment completed successfully!');
+              return;
+            }
+            
+            if (statusData.status === 'FAILED') {
+              setError('Payment failed. Please try again.');
+              return;
+            }
+            
+            // Continue polling if payment is pending
+            setTimeout(checkPayment, 5000);
+          } catch (err) {
+            console.error('Error checking payment status:', err);
+          }
+        };
+        
+        setTimeout(checkPayment, 5000);
+      } else if (responseData.redirect_url) {
+        window.location.href = responseData.redirect_url;
       } else {
-        throw new Error(`Payment initiation failed: ${JSON.stringify(submitData)}`);
+        throw new Error(`Payment initiation failed: ${JSON.stringify(responseData)}`);
       }
     } catch (err: any) {
       const errorMessage = err.message || 'Payment failed';
