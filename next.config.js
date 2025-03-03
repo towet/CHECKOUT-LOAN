@@ -5,6 +5,14 @@ const nextConfig = {
     PESAPAL_CONSUMER_SECRET: process.env.PESAPAL_CONSUMER_SECRET,
     SITE_URL: process.env.SITE_URL,
   },
+  async rewrites() {
+    return [
+      {
+        source: '/api/:path*',
+        destination: '/.netlify/functions/:path*',
+      },
+    ];
+  },
 }
 
 module.exports = nextConfig

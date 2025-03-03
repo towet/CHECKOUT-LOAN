@@ -57,7 +57,7 @@ export const PesaPalPayment: React.FC<PaymentProps> = ({
       console.log('Initiating payment with phone:', formattedPhone);
 
       // Get token
-      const tokenResponse = await fetch('/api/get-token');
+      const tokenResponse = await fetch('/.netlify/functions/get-token');
       
       if (!tokenResponse.ok) {
         const errorData = await tokenResponse.text();
@@ -73,7 +73,7 @@ export const PesaPalPayment: React.FC<PaymentProps> = ({
       }
 
       // Get the callback URL
-      const callbackUrl = `${window.location.origin}/api/ipn`;
+      const callbackUrl = `${window.location.origin}/.netlify/functions/ipn`;
       console.log('Callback URL:', callbackUrl);
 
       // Prepare order data
@@ -106,10 +106,11 @@ export const PesaPalPayment: React.FC<PaymentProps> = ({
       console.log('Submitting order with data:', orderData);
 
       // Submit order
-      const submitResponse = await fetch('/api/submit-order', {
+      const submitResponse = await fetch('/.netlify/functions/submit-order', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${tokenData.token}`,
         },
         body: JSON.stringify({
           token: tokenData.token,
@@ -130,7 +131,11 @@ export const PesaPalPayment: React.FC<PaymentProps> = ({
         // Poll for payment status
         const checkPayment = async () => {
           try {
-            const statusResponse = await fetch(`/api/check-payment?orderId=${responseData.order_tracking_id}`);
+            const statusResponse = await fetch(`/.netlify/functions/check-payment?orderId=${responseData.order_tracking_id}`, {
+              headers: {
+                'Authorization': `Bearer ${tokenData.token}`,
+              },
+            });
             const statusData = await statusResponse.json();
             
             if (statusData.status === 'COMPLETED') {
